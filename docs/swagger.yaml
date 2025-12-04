@@ -7,22 +7,34 @@ definitions:
     type: object
   api.sendMediaRequest:
     properties:
+      android_app_store_link:
+        type: string
       caption:
         description: optional caption/description
         type: string
       data_base64:
         description: base64 encoded bytes of the media
         type: string
+      disable_sticker_exif:
+        type: boolean
       file_name:
         description: used for documents
+        type: string
+      ios_app_store_link:
         type: string
       mime_type:
         description: e.g. image/png
         type: string
+      sticker_pack_id:
+        type: string
+      sticker_pack_name:
+        type: string
+      sticker_pack_publisher:
+        type: string
       to:
         type: string
       type:
-        description: image, video, audio, ptt, file, sticker
+        description: image, video, audio, ptt, file, sticker, sticker_lottie
         type: string
     type: object
   api.sendResponse:
@@ -138,6 +150,50 @@ paths:
         name: request
         schema:
           $ref: '#/definitions/api.sendMediaRequest'
+      - description: Sticker pack ID (sticker only)
+        in: query
+        name: sticker_pack_id
+        type: string
+      - description: Sticker pack name (sticker only)
+        in: query
+        name: sticker_pack_name
+        type: string
+      - description: Sticker pack publisher (sticker only)
+        in: query
+        name: sticker_pack_publisher
+        type: string
+      - description: Android store link (sticker only)
+        in: query
+        name: android_app_store_link
+        type: string
+      - description: iOS store link (sticker only)
+        in: query
+        name: ios_app_store_link
+        type: string
+      - description: Sticker pack ID (sticker only, multipart)
+        in: formData
+        name: sticker_pack_id
+        type: string
+      - description: Sticker pack name (sticker only, multipart)
+        in: formData
+        name: sticker_pack_name
+        type: string
+      - description: Sticker pack publisher (sticker only, multipart)
+        in: formData
+        name: sticker_pack_publisher
+        type: string
+      - description: Android store link (sticker only, multipart)
+        in: formData
+        name: android_app_store_link
+        type: string
+      - description: iOS store link (sticker only, multipart)
+        in: formData
+        name: ios_app_store_link
+        type: string
+      - description: Disable WebP EXIF embedding for sticker (multipart)
+        in: formData
+        name: disable_sticker_exif
+        type: boolean
       produces:
       - application/json
       responses:
@@ -157,7 +213,7 @@ paths:
           description: WhatsApp not connected
           schema:
             type: string
-      summary: Send media (image/video/audio/ptt/document/sticker)
+      summary: Send media (image/video/audio/ptt/document/sticker/sticker_lottie)
       tags:
       - media
   /send-text:

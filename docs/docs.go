@@ -137,7 +137,7 @@ const docTemplate = `{
                 "tags": [
                     "media"
                 ],
-                "summary": "Send media (image/video/audio/ptt/document/sticker)",
+                "summary": "Send media (image/video/audio/ptt/document/sticker/sticker_lottie)",
                 "parameters": [
                     {
                         "description": "Send media payload (JSON/base64)",
@@ -146,6 +146,72 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/api.sendMediaRequest"
                         }
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sticker pack ID (sticker only)",
+                        "name": "sticker_pack_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sticker pack name (sticker only)",
+                        "name": "sticker_pack_name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sticker pack publisher (sticker only)",
+                        "name": "sticker_pack_publisher",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Android store link (sticker only)",
+                        "name": "android_app_store_link",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "iOS store link (sticker only)",
+                        "name": "ios_app_store_link",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sticker pack ID (sticker only, multipart)",
+                        "name": "sticker_pack_id",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sticker pack name (sticker only, multipart)",
+                        "name": "sticker_pack_name",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sticker pack publisher (sticker only, multipart)",
+                        "name": "sticker_pack_publisher",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Android store link (sticker only, multipart)",
+                        "name": "android_app_store_link",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "iOS store link (sticker only, multipart)",
+                        "name": "ios_app_store_link",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Disable WebP EXIF embedding for sticker (multipart)",
+                        "name": "disable_sticker_exif",
+                        "in": "formData"
                     }
                 ],
                 "responses": {
@@ -284,6 +350,9 @@ const docTemplate = `{
         "api.sendMediaRequest": {
             "type": "object",
             "properties": {
+                "android_app_store_link": {
+                    "type": "string"
+                },
                 "caption": {
                     "description": "optional caption/description",
                     "type": "string"
@@ -292,19 +361,34 @@ const docTemplate = `{
                     "description": "base64 encoded bytes of the media",
                     "type": "string"
                 },
+                "disable_sticker_exif": {
+                    "type": "boolean"
+                },
                 "file_name": {
                     "description": "used for documents",
+                    "type": "string"
+                },
+                "ios_app_store_link": {
                     "type": "string"
                 },
                 "mime_type": {
                     "description": "e.g. image/png",
                     "type": "string"
                 },
+                "sticker_pack_id": {
+                    "type": "string"
+                },
+                "sticker_pack_name": {
+                    "type": "string"
+                },
+                "sticker_pack_publisher": {
+                    "type": "string"
+                },
                 "to": {
                     "type": "string"
                 },
                 "type": {
-                    "description": "image, video, audio, ptt, file, sticker",
+                    "description": "image, video, audio, ptt, file, sticker, sticker_lottie",
                     "type": "string"
                 }
             }

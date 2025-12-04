@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,12 +34,18 @@ type setWebhookRequest struct {
 }
 
 type sendMediaRequest struct {
-	To         string `json:"to"`
-	Type       string `json:"type"`        // image, video, audio, ptt, file, sticker
-	MimeType   string `json:"mime_type"`   // e.g. image/png
-	FileName   string `json:"file_name"`   // used for documents
-	Caption    string `json:"caption"`     // optional caption/description
-	DataBase64 string `json:"data_base64"` // base64 encoded bytes of the media
+	To                 string `json:"to"`
+	Type               string `json:"type"`        // image, video, audio, ptt, file, sticker, sticker_lottie
+	MimeType           string `json:"mime_type"`   // e.g. image/png
+	FileName           string `json:"file_name"`   // used for documents
+	Caption            string `json:"caption"`     // optional caption/description
+	DataBase64         string `json:"data_base64"` // base64 encoded bytes of the media
+	StickerPackID      string `json:"sticker_pack_id"`
+	StickerPackName    string `json:"sticker_pack_name"`
+	StickerPackPub     string `json:"sticker_pack_publisher"`
+	AndroidAppStore    string `json:"android_app_store_link"`
+	IOSAppStore        string `json:"ios_app_store_link"`
+	DisableStickerEXIF bool   `json:"disable_sticker_exif"`
 }
 
 type sendResponse struct {
@@ -231,13 +238,24 @@ func (s *Server) handleFetchMedia(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSendMedia godoc
-// @Summary Send media (image/video/audio/ptt/document/sticker)
+// @Summary Send media (image/video/audio/ptt/document/sticker/sticker_lottie)
 // @Description Supports JSON (base64) or multipart/form-data uploads
 // @Tags media
 // @Accept json
 // @Accept mpfd
 // @Produce json
 // @Param request body sendMediaRequest false "Send media payload (JSON/base64)"
+// @Param sticker_pack_id query string false "Sticker pack ID (sticker only)"
+// @Param sticker_pack_name query string false "Sticker pack name (sticker only)"
+// @Param sticker_pack_publisher query string false "Sticker pack publisher (sticker only)"
+// @Param android_app_store_link query string false "Android store link (sticker only)"
+// @Param ios_app_store_link query string false "iOS store link (sticker only)"
+// @Param sticker_pack_id formData string false "Sticker pack ID (sticker only, multipart)"
+// @Param sticker_pack_name formData string false "Sticker pack name (sticker only, multipart)"
+// @Param sticker_pack_publisher formData string false "Sticker pack publisher (sticker only, multipart)"
+// @Param android_app_store_link formData string false "Android store link (sticker only, multipart)"
+// @Param ios_app_store_link formData string false "iOS store link (sticker only, multipart)"
+// @Param disable_sticker_exif formData bool false "Disable WebP EXIF embedding for sticker (multipart)"
 // @Success 200 {object} sendResponse "Media accepted"
 // @Failure 400 {string} string "Invalid input"
 // @Failure 503 {string} string "WhatsApp not connected"
@@ -256,6 +274,8 @@ func (s *Server) handleSendMedia(w http.ResponseWriter, r *http.Request) {
 		fileName string
 		caption  string
 		data     []byte
+		meta     *whatsapp.StickerMetadata
+		skipExif bool
 	)
 
 	contentType := r.Header.Get("Content-Type")
@@ -268,7 +288,7 @@ func (s *Server) handleSendMedia(w http.ResponseWriter, r *http.Request) {
 		}
 
 		to = strings.TrimSpace(r.FormValue("to"))
-		kind = strings.ToLower(strings.TrimSpace(r.FormValue("type")))
+		kind = normalizeKind(r.FormValue("type"))
 		mimeType = strings.TrimSpace(r.FormValue("mime_type"))
 		fileName = strings.TrimSpace(r.FormValue("file_name"))
 		caption = r.FormValue("caption")
@@ -299,6 +319,8 @@ func (s *Server) handleSendMedia(w http.ResponseWriter, r *http.Request) {
 		if fileName == "" {
 			fileName = header.Filename
 		}
+		meta = buildStickerMetadataFromForm(r)
+		skipExif = parseBool(r.FormValue("disable_sticker_exif"))
 	} else {
 		var req sendMediaRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -307,7 +329,7 @@ func (s *Server) handleSendMedia(w http.ResponseWriter, r *http.Request) {
 		}
 
 		req.To = strings.TrimSpace(req.To)
-		req.Type = strings.ToLower(strings.TrimSpace(req.Type))
+		req.Type = normalizeKind(req.Type)
 		req.MimeType = strings.TrimSpace(req.MimeType)
 		req.FileName = strings.TrimSpace(req.FileName)
 
@@ -322,6 +344,10 @@ func (s *Server) handleSendMedia(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		to, kind, mimeType, fileName, caption, data = req.To, req.Type, req.MimeType, req.FileName, req.Caption, decoded
+		if kind == "sticker" {
+			meta = buildStickerMetadataFromJSON(req)
+			skipExif = req.DisableStickerEXIF
+		}
 	}
 
 	if to == "" || kind == "" || mimeType == "" || len(data) == 0 {
@@ -333,12 +359,14 @@ func (s *Server) handleSendMedia(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	resp, err := s.whatsapp.SendMedia(ctx, whatsapp.MediaMessageInput{
-		To:       to,
-		Kind:     kind,
-		MimeType: mimeType,
-		FileName: fileName,
-		Caption:  caption,
-		Data:     data,
+		To:              to,
+		Kind:            kind,
+		MimeType:        mimeType,
+		FileName:        fileName,
+		Caption:         caption,
+		Data:            data,
+		StickerMeta:     meta,
+		SkipStickerExif: skipExif,
 	})
 	if err != nil {
 		log.Printf("SendMedia error: %v", err)
@@ -407,4 +435,64 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusServiceUnavailable)
 	w.Write([]byte("whatsapp not connected"))
+}
+
+func parseBool(val string) bool {
+	b, err := strconv.ParseBool(val)
+	if err != nil {
+		return false
+	}
+	return b
+}
+
+func normalizeKind(kind string) string {
+	k := strings.ToLower(strings.TrimSpace(kind))
+	switch k {
+	case "sticker-lottie":
+		return "sticker_lottie"
+	default:
+		return k
+	}
+}
+
+func buildStickerMetadataFromForm(r *http.Request) *whatsapp.StickerMetadata {
+	meta := &whatsapp.StickerMetadata{
+		PackID:      strings.TrimSpace(r.FormValue("sticker_pack_id")),
+		PackName:    strings.TrimSpace(r.FormValue("sticker_pack_name")),
+		PackPub:     strings.TrimSpace(r.FormValue("sticker_pack_publisher")),
+		AndroidLink: strings.TrimSpace(r.FormValue("android_app_store_link")),
+		IOSLink:     strings.TrimSpace(r.FormValue("ios_app_store_link")),
+	}
+
+	if meta.PackName == "" {
+		meta.PackName = "WhatsApp Bot"
+	}
+	if meta.PackPub == "" {
+		meta.PackPub = "karisma.id"
+	}
+	if meta.PackID == "" {
+		meta.PackID = "bot-pack"
+	}
+	return meta
+}
+
+func buildStickerMetadataFromJSON(req sendMediaRequest) *whatsapp.StickerMetadata {
+	meta := &whatsapp.StickerMetadata{
+		PackID:      strings.TrimSpace(req.StickerPackID),
+		PackName:    strings.TrimSpace(req.StickerPackName),
+		PackPub:     strings.TrimSpace(req.StickerPackPub),
+		AndroidLink: strings.TrimSpace(req.AndroidAppStore),
+		IOSLink:     strings.TrimSpace(req.IOSAppStore),
+	}
+
+	if meta.PackName == "" {
+		meta.PackName = "WhatsApp Bot"
+	}
+	if meta.PackPub == "" {
+		meta.PackPub = "karisma.id"
+	}
+	if meta.PackID == "" {
+		meta.PackID = "bot-pack"
+	}
+	return meta
 }
