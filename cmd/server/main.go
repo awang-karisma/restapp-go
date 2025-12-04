@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 
@@ -26,6 +27,10 @@ import (
 
 func main() {
 	ctx := context.Background()
+
+	// Load environment variables from .env if present (noop when missing).
+	_ = godotenv.Load()
+
 	cfg := config.Load()
 
 	docs.SwaggerInfo.Title = "WhatsApp Relay API"
