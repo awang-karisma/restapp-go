@@ -14,6 +14,7 @@ import (
 
 	"github.com/awang-karisma/restapp-go/internal/config"
 	"github.com/awang-karisma/restapp-go/internal/whatsapp"
+	"github.com/skip2/go-qrcode"
 	httpSwagger "github.com/swaggo/http-swagger"
 )
 
@@ -45,6 +46,10 @@ type sendResponse struct {
 	MessageIDs []string `json:"MessageIDs"`
 }
 
+type qrResponse struct {
+	QRBase64 string `json:"qr_base64"`
+}
+
 func NewServer(cfg config.Config, svc *whatsapp.Service) *Server {
 	mux := http.NewServeMux()
 
@@ -61,6 +66,7 @@ func NewServer(cfg config.Config, svc *whatsapp.Service) *Server {
 	mux.HandleFunc("/media", s.handleFetchMedia)
 	mux.HandleFunc("/webhook", s.handleSetWebhook)
 	mux.HandleFunc("/healthz", s.handleHealth)
+	mux.HandleFunc("/qr", s.handleQR)
 	mux.Handle("/swagger/", httpSwagger.WrapHandler)
 
 	return s
@@ -77,6 +83,56 @@ func (s *Server) ListenAndServe() error {
 
 func (s *Server) Shutdown(ctx context.Context) error {
 	return s.srv.Shutdown(ctx)
+}
+
+// handleQR godoc
+// @Summary Get login QR code
+// @Description Returns the current login QR code if not logged in. Defaults to PNG image. Use `type=json` to get base64.
+// @Tags auth
+// @Produce json
+// @Produce png
+// @Param type query string false "image|json" default(image)
+// @Success 200 {object} qrResponse "Base64 QR when type=json"
+// @Failure 409 {string} string "Session already exists"
+// @Failure 404 {string} string "QR not available"
+// @Router /qr [get]
+func (s *Server) handleQR(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	kind := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("type")))
+	if kind == "" {
+		kind = "image"
+	}
+
+	code, err := s.whatsapp.QRCode()
+	if err != nil {
+		if strings.Contains(err.Error(), "exists") {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	png, err := qrcode.Encode(code, qrcode.Medium, 256)
+	if err != nil {
+		http.Error(w, "failed to render qr", http.StatusInternalServerError)
+		return
+	}
+
+	if kind == "json" {
+		resp := qrResponse{QRBase64: base64.StdEncoding.EncodeToString(png)}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+		return
+	}
+
+	w.Header().Set("Content-Type", "image/png")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(png)
 }
 
 // handleSendText godoc

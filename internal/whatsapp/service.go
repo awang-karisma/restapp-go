@@ -36,6 +36,10 @@ type Service struct {
 	mediaStore map[string]storedMedia
 	db         *sql.DB
 	dialect    string
+
+	qrMu        sync.RWMutex
+	lastQRCode  string
+	qrChannelOn bool
 }
 
 type incomingWebhookPayload struct {
@@ -160,6 +164,7 @@ func (s *Service) Connect(ctx context.Context) error {
 	if s.client.Store.ID == nil {
 		log.Println("No existing WhatsApp session, starting new login...")
 		qrChan, _ := s.client.GetQRChannel(ctx)
+		s.setQRChannelState(true)
 		if err := s.client.Connect(); err != nil {
 			return err
 		}
@@ -169,10 +174,12 @@ func (s *Service) Connect(ctx context.Context) error {
 			case "code":
 				log.Println("Scan this QR with your phone's WhatsApp:")
 				qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
+				s.setLastQRCode(evt.Code)
 			default:
 				log.Println("Login event:", evt.Event)
 			}
 		}
+		s.setQRChannelState(false)
 		return nil
 	}
 
@@ -186,6 +193,22 @@ func (s *Service) Disconnect() {
 
 func (s *Service) IsConnected() bool {
 	return s.client.IsConnected()
+}
+
+// QRCode returns the latest QR code string if not logged in.
+func (s *Service) QRCode() (string, error) {
+	if s.client.Store.ID != nil {
+		return "", errors.New("session already exists")
+	}
+	s.qrMu.RLock()
+	defer s.qrMu.RUnlock()
+	if s.lastQRCode == "" {
+		if s.qrChannelOn {
+			return "", errors.New("qr pending, not ready")
+		}
+		return "", errors.New("qr not available")
+	}
+	return s.lastQRCode, nil
 }
 
 func (s *Service) SendText(ctx context.Context, to, message string) (whatsmeow.SendResponse, error) {
@@ -720,4 +743,19 @@ func (s *Service) getWebhookURL() string {
 	s.webhookMu.RLock()
 	defer s.webhookMu.RUnlock()
 	return s.webhookURL
+}
+
+func (s *Service) setLastQRCode(code string) {
+	s.qrMu.Lock()
+	s.lastQRCode = strings.TrimSpace(code)
+	s.qrMu.Unlock()
+}
+
+func (s *Service) setQRChannelState(on bool) {
+	s.qrMu.Lock()
+	s.qrChannelOn = on
+	if !on {
+		s.lastQRCode = s.lastQRCode // keep last code until session exists or replaced
+	}
+	s.qrMu.Unlock()
 }
