@@ -5,11 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
-	"io/fs"
-	"log"
-	"os"
 	"strings"
-	"time"
 )
 
 // StickerMetadata captures pack info stored in EXIF UserComment for stickers.
@@ -172,20 +168,6 @@ func buildStickerMetadataText(meta StickerMetadata) ([]byte, error) {
 	}
 
 	return json.Marshal(payload)
-}
-
-func writeDebugSticker(stage string, data []byte) {
-	if len(data) == 0 {
-		return
-	}
-	if err := os.MkdirAll(".temp", fs.ModePerm); err != nil {
-		log.Printf("debug sticker mkdir failed: %v", err)
-		return
-	}
-	name := ".temp/sticker-" + stage + "-" + time.Now().UTC().Format("20060102T150405.000000000") + ".webp"
-	if err := os.WriteFile(name, data, 0o644); err != nil {
-		log.Printf("debug sticker write failed: %v", err)
-	}
 }
 
 type webpChunk struct {

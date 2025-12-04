@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -80,7 +80,7 @@ func NewServer(cfg config.Config, svc *whatsapp.Service) *Server {
 }
 
 func (s *Server) ListenAndServe() error {
-	log.Printf("HTTP API listening on %s", s.srv.Addr)
+	slog.Info("HTTP API listening", "addr", s.srv.Addr)
 
 	if err := s.srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
@@ -177,7 +177,7 @@ func (s *Server) handleSendText(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := s.whatsapp.SendText(ctx, req.To, req.Message)
 	if err != nil {
-		log.Printf("SendMessage error: %v", err)
+		slog.Error("SendMessage error", "err", err)
 		status := http.StatusInternalServerError
 		if strings.Contains(err.Error(), "not connected") {
 			status = http.StatusServiceUnavailable
@@ -217,7 +217,7 @@ func (s *Server) handleFetchMedia(w http.ResponseWriter, r *http.Request) {
 
 	result, err := s.whatsapp.FetchMedia(ctx, id)
 	if err != nil {
-		log.Printf("FetchMedia error for %s: %v", id, err)
+		slog.Error("FetchMedia error", "id", id, "err", err)
 		status := http.StatusInternalServerError
 		if strings.Contains(err.Error(), "not found") {
 			status = http.StatusNotFound
@@ -369,7 +369,7 @@ func (s *Server) handleSendMedia(w http.ResponseWriter, r *http.Request) {
 		SkipStickerExif: skipExif,
 	})
 	if err != nil {
-		log.Printf("SendMedia error: %v", err)
+		slog.Error("SendMedia error", "err", err)
 		status := http.StatusInternalServerError
 		if strings.Contains(err.Error(), "not connected") {
 			status = http.StatusServiceUnavailable

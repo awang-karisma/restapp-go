@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
-	"log"
+	"log/slog"
 
 	"go.mau.fi/whatsmeow/types/events"
 )
@@ -40,20 +40,20 @@ func (s *Service) forwardToWebhook(msg *events.Message) {
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		log.Printf("failed to marshal webhook payload: %v", err)
+		slog.Error("failed to marshal webhook payload", "err", err)
 		return
 	}
 
 	resp, err := s.httpClient.Post(url, "application/json", bytes.NewReader(body))
 	if err != nil {
-		log.Printf("webhook POST error: %v", err)
+		slog.Error("webhook POST error", "err", err)
 		return
 	}
 	defer resp.Body.Close()
 	io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode >= 300 {
-		log.Printf("webhook responded with status %d", resp.StatusCode)
+		slog.Warn("webhook responded with non-2xx", "status", resp.StatusCode)
 	}
 }
 

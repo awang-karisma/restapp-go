@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -92,7 +92,7 @@ func NewService(ctx context.Context, db *sql.DB, dialect string, cfg config.Conf
 
 func (s *Service) Connect(ctx context.Context) error {
 	if s.client.Store.ID == nil {
-		log.Println("No existing WhatsApp session, starting new login...")
+		slog.Info("No existing WhatsApp session, starting new login...")
 		qrChan, _ := s.client.GetQRChannel(ctx)
 		s.setQRChannelState(true)
 		if err := s.client.Connect(); err != nil {
@@ -102,18 +102,18 @@ func (s *Service) Connect(ctx context.Context) error {
 		for evt := range qrChan {
 			switch evt.Event {
 			case "code":
-				log.Println("Scan this QR with your phone's WhatsApp:")
+				slog.Info("Scan this QR with your phone's WhatsApp:")
 				qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
 				s.setLastQRCode(evt.Code)
 			default:
-				log.Println("Login event:", evt.Event)
+				slog.Info("Login event", "event", evt.Event)
 			}
 		}
 		s.setQRChannelState(false)
 		return nil
 	}
 
-	log.Println("Existing WhatsApp session found, connecting...")
+	slog.Info("Existing WhatsApp session found, connecting...")
 	return s.client.Connect()
 }
 
@@ -205,8 +205,6 @@ func (s *Service) SendMedia(ctx context.Context, input MediaMessageInput) (whats
 		}
 
 		if !input.SkipStickerExif {
-			writeDebugSticker("before", input.Data)
-
 			if input.StickerMeta != nil {
 				meta := input.StickerMeta.normalizeDefaults()
 				input.StickerMeta = &meta
@@ -218,7 +216,6 @@ func (s *Service) SendMedia(ctx context.Context, input MediaMessageInput) (whats
 			if err != nil {
 				return whatsmeow.SendResponse{}, err
 			}
-			writeDebugSticker("after", rewritten)
 			input.Data = rewritten
 		}
 

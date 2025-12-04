@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"log"
+	"log/slog"
 	"strings"
 
 	"google.golang.org/protobuf/proto"
@@ -90,7 +90,7 @@ func (s *Service) cacheMedia(id, kind string, message *waE2E.Message) {
 	s.mediaMu.Unlock()
 
 	if err := s.persistMedia(id, kind, message); err != nil {
-		log.Printf("persist media %s failed: %v", id, err)
+		slog.Warn("persist media failed", "id", id, "err", err)
 	}
 }
 

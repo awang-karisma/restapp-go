@@ -9,7 +9,7 @@ package main
 import (
 	"context"
 	"database/sql"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -31,6 +31,11 @@ func main() {
 	// Load environment variables from .env if present (noop when missing).
 	_ = godotenv.Load()
 
+	// Configure slog globally.
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})))
+
 	cfg := config.Load()
 
 	docs.SwaggerInfo.Title = "WhatsApp Relay API"
@@ -40,23 +45,27 @@ func main() {
 
 	db, err := sql.Open(cfg.DatabaseDriver, cfg.DatabaseDSN)
 	if err != nil {
-		log.Fatalf("failed to open database: %v", err)
+		slog.Error("failed to open database", "err", err)
+		os.Exit(1)
 	}
 	defer db.Close()
 
 	if cfg.Dialect() == "sqlite3" {
 		if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
-			log.Fatalf("failed to enable sqlite foreign keys: %v", err)
+			slog.Error("failed to enable sqlite foreign keys", "err", err)
+			os.Exit(1)
 		}
 	}
 
 	waService, err := whatsapp.NewService(ctx, db, cfg.Dialect(), cfg)
 	if err != nil {
-		log.Fatalf("failed to init whatsapp client: %v", err)
+		slog.Error("failed to init whatsapp client", "err", err)
+		os.Exit(1)
 	}
 
 	if err := waService.Connect(ctx); err != nil {
-		log.Fatalf("failed to connect to whatsapp: %v", err)
+		slog.Error("failed to connect to whatsapp", "err", err)
+		os.Exit(1)
 	}
 
 	apiServer := api.NewServer(cfg, waService)
@@ -72,19 +81,20 @@ func main() {
 	select {
 	case err := <-serverErr:
 		if err != nil {
-			log.Fatalf("HTTP server error: %v", err)
+			slog.Error("HTTP server error", "err", err)
+			os.Exit(1)
 		}
 	case <-stop:
-		log.Println("Shutdown signal received, closing down...")
+		slog.Info("Shutdown signal received, closing down...")
 	}
 
 	ctxShutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := apiServer.Shutdown(ctxShutdown); err != nil {
-		log.Printf("HTTP server shutdown error: %v", err)
+		slog.Error("HTTP server shutdown error", "err", err)
 	}
 
 	waService.Disconnect()
-	log.Println("Bye.")
+	slog.Info("Bye.")
 }
