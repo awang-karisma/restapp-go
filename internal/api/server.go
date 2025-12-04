@@ -14,6 +14,7 @@ import (
 
 	"github.com/awang-karisma/restapp-go/internal/config"
 	"github.com/awang-karisma/restapp-go/internal/whatsapp"
+	httpSwagger "github.com/swaggo/http-swagger"
 )
 
 type Server struct {
@@ -39,6 +40,11 @@ type sendMediaRequest struct {
 	DataBase64 string `json:"data_base64"` // base64 encoded bytes of the media
 }
 
+type sendResponse struct {
+	ID         string   `json:"ID"`
+	MessageIDs []string `json:"MessageIDs"`
+}
+
 func NewServer(cfg config.Config, svc *whatsapp.Service) *Server {
 	mux := http.NewServeMux()
 
@@ -55,6 +61,7 @@ func NewServer(cfg config.Config, svc *whatsapp.Service) *Server {
 	mux.HandleFunc("/media", s.handleFetchMedia)
 	mux.HandleFunc("/webhook", s.handleSetWebhook)
 	mux.HandleFunc("/healthz", s.handleHealth)
+	mux.Handle("/swagger/", httpSwagger.WrapHandler)
 
 	return s
 }
@@ -72,6 +79,18 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return s.srv.Shutdown(ctx)
 }
 
+// handleSendText godoc
+// @Summary Send a text message
+// @Description Sends a plain text WhatsApp message
+// @Tags messages
+// @Accept json
+// @Produce json
+// @Param request body sendTextRequest true "Send text payload"
+// @Success 200 {object} sendResponse "Message accepted"
+// @Failure 400 {string} string "Invalid input"
+// @Failure 503 {string} string "WhatsApp not connected"
+// @Failure 500 {string} string "Send failed"
+// @Router /send-text [post]
 func (s *Server) handleSendText(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -108,6 +127,16 @@ func (s *Server) handleSendText(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+// handleFetchMedia godoc
+// @Summary Fetch media by message ID
+// @Description Downloads and decrypts media for a previously received message ID
+// @Tags media
+// @Produce octet-stream
+// @Param id query string true "Message ID from webhook payload"
+// @Success 200 {file} binary "Media bytes"
+// @Failure 404 {string} string "Media not found in cache/DB"
+// @Failure 500 {string} string "Download/decrypt failed"
+// @Router /media [get]
 func (s *Server) handleFetchMedia(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -145,6 +174,19 @@ func (s *Server) handleFetchMedia(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(result.Data)
 }
 
+// handleSendMedia godoc
+// @Summary Send media (image/video/audio/ptt/document)
+// @Description Supports JSON (base64) or multipart/form-data uploads
+// @Tags media
+// @Accept json
+// @Accept mpfd
+// @Produce json
+// @Param request body sendMediaRequest false "Send media payload (JSON/base64)"
+// @Success 200 {object} sendResponse "Media accepted"
+// @Failure 400 {string} string "Invalid input"
+// @Failure 503 {string} string "WhatsApp not connected"
+// @Failure 500 {string} string "Send failed"
+// @Router /send-media [post]
 func (s *Server) handleSendMedia(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -258,6 +300,16 @@ func (s *Server) handleSendMedia(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+// handleSetWebhook godoc
+// @Summary Configure webhook URL
+// @Description Sets the HTTP webhook URL for incoming WhatsApp messages
+// @Tags webhook
+// @Accept json
+// @Produce json
+// @Param request body setWebhookRequest true "Webhook URL payload"
+// @Success 200 {object} map[string]string "Status and webhook URL"
+// @Failure 400 {string} string "Invalid input"
+// @Router /webhook [post]
 func (s *Server) handleSetWebhook(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -282,6 +334,14 @@ func (s *Server) handleSetWebhook(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `{"status":"ok","webhook_url":%q}`, url)
 }
 
+// handleHealth godoc
+// @Summary Health check
+// @Description Returns OK when WhatsApp client is connected
+// @Tags health
+// @Produce plain
+// @Success 200 {string} string "ok"
+// @Failure 503 {string} string "whatsapp not connected"
+// @Router /healthz [get]
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if s.whatsapp.IsConnected() {
 		w.WriteHeader(http.StatusOK)

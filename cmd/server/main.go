@@ -1,5 +1,7 @@
 package main
 
+//go:generate swag init -g main.go -o ../../docs
+
 import (
 	"context"
 	"database/sql"
@@ -12,6 +14,7 @@ import (
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 
+	docs "github.com/awang-karisma/restapp-go/docs" // swagger docs
 	"github.com/awang-karisma/restapp-go/internal/api"
 	"github.com/awang-karisma/restapp-go/internal/config"
 	"github.com/awang-karisma/restapp-go/internal/whatsapp"
@@ -20,6 +23,11 @@ import (
 func main() {
 	ctx := context.Background()
 	cfg := config.Load()
+
+	docs.SwaggerInfo.Title = "WhatsApp Relay API"
+	docs.SwaggerInfo.Version = "1.0.0"
+	docs.SwaggerInfo.BasePath = "/"
+	docs.SwaggerInfo.Description = "REST API for sending/receiving WhatsApp messages via whatsmeow."
 
 	db, err := sql.Open(cfg.DatabaseDriver, cfg.DatabaseDSN)
 	if err != nil {
