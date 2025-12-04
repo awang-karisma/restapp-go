@@ -23,10 +23,11 @@ go run ./cmd/server
 On first run, scan the QR printed in the terminal with WhatsApp on your phone.
 
 ## API Overview
-- `POST /send-text` — send a text message
-- `POST /send-media` — send image/video/audio/ptt/document (JSON+base64 or multipart)
+- `POST /send-text` — send a text message.
+- `POST /send-media` — send image/video/audio/ptt/document/sticker. Accepts JSON (base64 `data`) or multipart form. Sticker-specific fields: `kind=sticker` with WebP data; `sticker_pack_id/name/publisher` and optional `emojis` (JSON or repeated form field) set pack metadata; `disable_sticker_exif=true` to skip embedding; `kind=sticker_lottie` for Lottie ZIP stickers. Other media use `mime_type` and optional `filename`/`caption`.
 - `GET /media?id=<message-id>` — download previously received media (requires cached/persisted metadata)
 - `POST /webhook` — set/change webhook URL
+- `GET /qr?type=image|json` — fetch current QR (image by default; json returns base64). Returns an error if already logged in.
 - `GET /healthz` — health check
 - `GET /swagger/` — Swagger UI (spec at `/swagger/doc.json`)
 
@@ -38,6 +39,12 @@ Generated with `swag` annotations. To regenerate after handler changes:
 go install github.com/swaggo/swag/cmd/swag@latest
 PATH=$(go env GOPATH)/bin:$PATH go generate ./cmd/server
 ```
+
+## Project layout
+- `cmd/server` — entrypoint wiring config/env and HTTP server.
+- `internal/api` — HTTP handlers (send, webhook, media fetch, QR, swagger).
+- `internal/whatsapp` — WhatsApp client service, webhook dispatch, media store, sticker helpers (EXIF/Lottie), QR handling.
+- `internal/config` — configuration loading.
 
 ## Persistence notes
 Media metadata is persisted (SQLite/Postgres) so `/media` can fetch after restarts. Actual media bytes are only downloaded on demand.***
