@@ -3,14 +3,13 @@ package whatsapp
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"log"
 	"os"
 	"strings"
 	"time"
-
-	"github.com/dsoprea/go-exif"
 )
 
 // StickerMetadata captures pack info stored in EXIF UserComment for stickers.
@@ -20,6 +19,7 @@ type StickerMetadata struct {
 	PackPub     string
 	AndroidLink string
 	IOSLink     string
+	Emojis      []string
 }
 
 func (m StickerMetadata) normalizeDefaults() StickerMetadata {
@@ -32,6 +32,9 @@ func (m StickerMetadata) normalizeDefaults() StickerMetadata {
 	}
 	if strings.TrimSpace(out.PackID) == "" {
 		out.PackID = "bot-pack"
+	}
+	if out.Emojis == nil {
+		out.Emojis = []string{}
 	}
 	return out
 }
@@ -134,52 +137,41 @@ func injectStickerMetadataEXIF(data []byte, meta StickerMetadata) ([]byte, error
 }
 
 func buildStickerExifPayload(meta StickerMetadata) ([]byte, error) {
-	im := exif.NewIfdMapping()
-	if err := exif.LoadStandardIfds(im); err != nil {
+	jsonPayload, err := buildStickerMetadataText(meta)
+	if err != nil {
 		return nil, err
 	}
 
-	ti := exif.NewTagIndex()
-
-	rootIb := exif.NewIfdBuilder(im, ti, exif.IfdPathStandard, binary.BigEndian)
-	exifIb := exif.NewIfdBuilder(im, ti, exif.IfdPathStandardExif, binary.BigEndian)
-
-	if err := rootIb.AddChildIb(exifIb); err != nil {
-		return nil, err
+	// Matches the wa-sticker-formatter layout:
+	// TIFF little-endian header, one IFD entry (tag 0x5741, type 7/undefined),
+	// count = JSON length, value offset = 0x16, then JSON bytes.
+	header := []byte{
+		0x49, 0x49, 0x2a, 0x00, // TIFF little-endian
+		0x08, 0x00, 0x00, 0x00, // offset to IFD (8)
+		0x01, 0x00, // number of entries (1)
+		0x41, 0x57, // tag 0x5741 ("AW")
+		0x07, 0x00, // type = UNDEFINED (7)
+		0x00, 0x00, 0x00, 0x00, // count (filled below)
+		0x16, 0x00, 0x00, 0x00, // value offset (22)
 	}
+	binary.LittleEndian.PutUint32(header[14:], uint32(len(jsonPayload)))
 
-	payload := buildStickerMetadataText(meta)
-	uc := exif.TagUnknownType_9298_UserComment{
-		EncodingType:  exif.TagUnknownType_9298_UserComment_Encoding_ASCII,
-		EncodingBytes: payload,
-	}
-
-	if err := exifIb.AddStandardWithName("UserComment", uc); err != nil {
-		return nil, err
-	}
-
-	ibe := exif.NewIfdByteEncoder()
-	return ibe.EncodeToExif(rootIb)
+	exifBuf := make([]byte, 0, len(header)+len(jsonPayload))
+	exifBuf = append(exifBuf, header...)
+	exifBuf = append(exifBuf, jsonPayload...)
+	return exifBuf, nil
 }
 
-func buildStickerMetadataText(meta StickerMetadata) []byte {
+func buildStickerMetadataText(meta StickerMetadata) ([]byte, error) {
 	meta = meta.normalizeDefaults()
-	builder := bytes.NewBuffer(nil)
-
-	writeKV := func(k, v string) {
-		builder.WriteString(k)
-		builder.WriteByte(0x00)
-		builder.WriteString(v)
-		builder.WriteByte(0x00)
+	payload := map[string]interface{}{
+		"sticker-pack-id":        meta.PackID,
+		"sticker-pack-name":      meta.PackName,
+		"sticker-pack-publisher": meta.PackPub,
+		"emojis":                 meta.Emojis,
 	}
 
-	writeKV("sticker-pack-id", meta.PackID)
-	writeKV("sticker-pack-name", meta.PackName)
-	writeKV("sticker-pack-publisher", meta.PackPub)
-	writeKV("android-app-store-link", meta.AndroidLink)
-	writeKV("ios-app-store-link", meta.IOSLink)
-
-	return builder.Bytes()
+	return json.Marshal(payload)
 }
 
 func writeDebugSticker(stage string, data []byte) {
