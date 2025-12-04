@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	_ "github.com/lib/pq"
+	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/awang-karisma/restapp-go/internal/api"
 	"github.com/awang-karisma/restapp-go/internal/config"
@@ -17,7 +21,19 @@ func main() {
 	ctx := context.Background()
 	cfg := config.Load()
 
-	waService, err := whatsapp.NewService(ctx, cfg)
+	db, err := sql.Open(cfg.DatabaseDriver, cfg.DatabaseDSN)
+	if err != nil {
+		log.Fatalf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	if cfg.Dialect() == "sqlite3" {
+		if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
+			log.Fatalf("failed to enable sqlite foreign keys: %v", err)
+		}
+	}
+
+	waService, err := whatsapp.NewService(ctx, db, cfg.Dialect(), cfg)
 	if err != nil {
 		log.Fatalf("failed to init whatsapp client: %v", err)
 	}

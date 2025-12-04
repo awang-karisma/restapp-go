@@ -52,6 +52,7 @@ func NewServer(cfg config.Config, svc *whatsapp.Service) *Server {
 
 	mux.HandleFunc("/send-text", s.handleSendText)
 	mux.HandleFunc("/send-media", s.handleSendMedia)
+	mux.HandleFunc("/media", s.handleFetchMedia)
 	mux.HandleFunc("/webhook", s.handleSetWebhook)
 	mux.HandleFunc("/healthz", s.handleHealth)
 
@@ -105,6 +106,43 @@ func (s *Server) handleSendText(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) handleFetchMedia(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	if id == "" {
+		http.Error(w, "`id` is required", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+
+	result, err := s.whatsapp.FetchMedia(ctx, id)
+	if err != nil {
+		log.Printf("FetchMedia error for %s: %v", id, err)
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		}
+		http.Error(w, "fetch media failed: "+err.Error(), status)
+		return
+	}
+
+	if result.MimeType != "" {
+		w.Header().Set("Content-Type", result.MimeType)
+	}
+	if result.FileName != "" {
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", result.FileName))
+	}
+
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(result.Data)
 }
 
 func (s *Server) handleSendMedia(w http.ResponseWriter, r *http.Request) {
