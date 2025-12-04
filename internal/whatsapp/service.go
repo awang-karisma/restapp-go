@@ -19,7 +19,6 @@ import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
-	waLog "go.mau.fi/whatsmeow/util/log"
 )
 
 type Service struct {
@@ -58,7 +57,7 @@ type MediaMessageInput struct {
 
 // NewService builds the WhatsApp service using a shared DB handle and dialect.
 func NewService(ctx context.Context, db *sql.DB, dialect string, cfg config.Config) (*Service, error) {
-	dbLog := waLog.Stdout("Database", "INFO", true)
+	dbLog := newWaSlogLogger("Database")
 
 	container := sqlstore.NewWithDB(db, dialect, dbLog)
 	if err := container.Upgrade(ctx); err != nil {
@@ -70,7 +69,7 @@ func NewService(ctx context.Context, db *sql.DB, dialect string, cfg config.Conf
 		return nil, err
 	}
 
-	clientLog := waLog.Stdout("Client", "INFO", true)
+	clientLog := newWaSlogLogger("Client")
 	client := whatsmeow.NewClient(deviceStore, clientLog)
 
 	svc := &Service{
