@@ -34,7 +34,7 @@ type setWebhookRequest struct {
 
 type sendMediaRequest struct {
 	To         string `json:"to"`
-	Type       string `json:"type"`        // image, video, audio, ptt, file
+	Type       string `json:"type"`        // image, video, audio, ptt, file, sticker
 	MimeType   string `json:"mime_type"`   // e.g. image/png
 	FileName   string `json:"file_name"`   // used for documents
 	Caption    string `json:"caption"`     // optional caption/description
@@ -231,7 +231,7 @@ func (s *Server) handleFetchMedia(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSendMedia godoc
-// @Summary Send media (image/video/audio/ptt/document)
+// @Summary Send media (image/video/audio/ptt/document/sticker)
 // @Description Supports JSON (base64) or multipart/form-data uploads
 // @Tags media
 // @Accept json

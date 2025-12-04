@@ -1,4 +1,225 @@
+basePath: /
+definitions:
+  api.qrResponse:
+    properties:
+      qr_base64:
+        type: string
+    type: object
+  api.sendMediaRequest:
+    properties:
+      caption:
+        description: optional caption/description
+        type: string
+      data_base64:
+        description: base64 encoded bytes of the media
+        type: string
+      file_name:
+        description: used for documents
+        type: string
+      mime_type:
+        description: e.g. image/png
+        type: string
+      to:
+        type: string
+      type:
+        description: image, video, audio, ptt, file, sticker
+        type: string
+    type: object
+  api.sendResponse:
+    properties:
+      ID:
+        type: string
+      MessageIDs:
+        items:
+          type: string
+        type: array
+    type: object
+  api.sendTextRequest:
+    properties:
+      message:
+        type: string
+      to:
+        type: string
+    type: object
+  api.setWebhookRequest:
+    properties:
+      url:
+        type: string
+    type: object
 info:
   contact: {}
-paths: {}
+  description: REST API for sending/receiving WhatsApp messages via whatsmeow.
+  title: WhatsApp Relay API
+  version: "1.0"
+paths:
+  /healthz:
+    get:
+      description: Returns OK when WhatsApp client is connected
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: ok
+          schema:
+            type: string
+        "503":
+          description: whatsapp not connected
+          schema:
+            type: string
+      summary: Health check
+      tags:
+      - health
+  /media:
+    get:
+      description: Downloads and decrypts media for a previously received message
+        ID
+      parameters:
+      - description: Message ID from webhook payload
+        in: query
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: Media bytes
+          schema:
+            type: file
+        "404":
+          description: Media not found in cache/DB
+          schema:
+            type: string
+        "500":
+          description: Download/decrypt failed
+          schema:
+            type: string
+      summary: Fetch media by message ID
+      tags:
+      - media
+  /qr:
+    get:
+      description: Returns the current login QR code if not logged in. Defaults to
+        PNG image. Use `type=json` to get base64.
+      parameters:
+      - default: image
+        description: image|json
+        in: query
+        name: type
+        type: string
+      produces:
+      - application/json
+      - image/png
+      responses:
+        "200":
+          description: Base64 QR when type=json
+          schema:
+            $ref: '#/definitions/api.qrResponse'
+        "404":
+          description: QR not available
+          schema:
+            type: string
+        "409":
+          description: Session already exists
+          schema:
+            type: string
+      summary: Get login QR code
+      tags:
+      - auth
+  /send-media:
+    post:
+      consumes:
+      - application/json
+      - multipart/form-data
+      description: Supports JSON (base64) or multipart/form-data uploads
+      parameters:
+      - description: Send media payload (JSON/base64)
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/api.sendMediaRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Media accepted
+          schema:
+            $ref: '#/definitions/api.sendResponse'
+        "400":
+          description: Invalid input
+          schema:
+            type: string
+        "500":
+          description: Send failed
+          schema:
+            type: string
+        "503":
+          description: WhatsApp not connected
+          schema:
+            type: string
+      summary: Send media (image/video/audio/ptt/document/sticker)
+      tags:
+      - media
+  /send-text:
+    post:
+      consumes:
+      - application/json
+      description: Sends a plain text WhatsApp message
+      parameters:
+      - description: Send text payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.sendTextRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Message accepted
+          schema:
+            $ref: '#/definitions/api.sendResponse'
+        "400":
+          description: Invalid input
+          schema:
+            type: string
+        "500":
+          description: Send failed
+          schema:
+            type: string
+        "503":
+          description: WhatsApp not connected
+          schema:
+            type: string
+      summary: Send a text message
+      tags:
+      - messages
+  /webhook:
+    post:
+      consumes:
+      - application/json
+      description: Sets the HTTP webhook URL for incoming WhatsApp messages
+      parameters:
+      - description: Webhook URL payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.setWebhookRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Status and webhook URL
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid input
+          schema:
+            type: string
+      summary: Configure webhook URL
+      tags:
+      - webhook
 swagger: "2.0"

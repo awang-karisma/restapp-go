@@ -1,7 +1,339 @@
 {
     "swagger": "2.0",
     "info": {
-        "contact": {}
+        "description": "REST API for sending/receiving WhatsApp messages via whatsmeow.",
+        "title": "WhatsApp Relay API",
+        "contact": {},
+        "version": "1.0"
     },
-    "paths": {}
+    "basePath": "/",
+    "paths": {
+        "/healthz": {
+            "get": {
+                "description": "Returns OK when WhatsApp client is connected",
+                "produces": [
+                    "text/plain"
+                ],
+                "tags": [
+                    "health"
+                ],
+                "summary": "Health check",
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "whatsapp not connected",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/media": {
+            "get": {
+                "description": "Downloads and decrypts media for a previously received message ID",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "media"
+                ],
+                "summary": "Fetch media by message ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Message ID from webhook payload",
+                        "name": "id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Media bytes",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "404": {
+                        "description": "Media not found in cache/DB",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Download/decrypt failed",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/qr": {
+            "get": {
+                "description": "Returns the current login QR code if not logged in. Defaults to PNG image. Use `type=json` to get base64.",
+                "produces": [
+                    "application/json",
+                    "image/png"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Get login QR code",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "default": "image",
+                        "description": "image|json",
+                        "name": "type",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Base64 QR when type=json",
+                        "schema": {
+                            "$ref": "#/definitions/api.qrResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "QR not available",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "409": {
+                        "description": "Session already exists",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/send-media": {
+            "post": {
+                "description": "Supports JSON (base64) or multipart/form-data uploads",
+                "consumes": [
+                    "application/json",
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "media"
+                ],
+                "summary": "Send media (image/video/audio/ptt/document/sticker)",
+                "parameters": [
+                    {
+                        "description": "Send media payload (JSON/base64)",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/api.sendMediaRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Media accepted",
+                        "schema": {
+                            "$ref": "#/definitions/api.sendResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid input",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Send failed",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "WhatsApp not connected",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/send-text": {
+            "post": {
+                "description": "Sends a plain text WhatsApp message",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "messages"
+                ],
+                "summary": "Send a text message",
+                "parameters": [
+                    {
+                        "description": "Send text payload",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.sendTextRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Message accepted",
+                        "schema": {
+                            "$ref": "#/definitions/api.sendResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid input",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Send failed",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "WhatsApp not connected",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/webhook": {
+            "post": {
+                "description": "Sets the HTTP webhook URL for incoming WhatsApp messages",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "webhook"
+                ],
+                "summary": "Configure webhook URL",
+                "parameters": [
+                    {
+                        "description": "Webhook URL payload",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.setWebhookRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Status and webhook URL",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid input",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "api.qrResponse": {
+            "type": "object",
+            "properties": {
+                "qr_base64": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.sendMediaRequest": {
+            "type": "object",
+            "properties": {
+                "caption": {
+                    "description": "optional caption/description",
+                    "type": "string"
+                },
+                "data_base64": {
+                    "description": "base64 encoded bytes of the media",
+                    "type": "string"
+                },
+                "file_name": {
+                    "description": "used for documents",
+                    "type": "string"
+                },
+                "mime_type": {
+                    "description": "e.g. image/png",
+                    "type": "string"
+                },
+                "to": {
+                    "type": "string"
+                },
+                "type": {
+                    "description": "image, video, audio, ptt, file, sticker",
+                    "type": "string"
+                }
+            }
+        },
+        "api.sendResponse": {
+            "type": "object",
+            "properties": {
+                "ID": {
+                    "type": "string"
+                },
+                "MessageIDs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "api.sendTextRequest": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.setWebhookRequest": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string"
+                }
+            }
+        }
+    }
 }

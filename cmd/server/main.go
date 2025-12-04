@@ -1,6 +1,10 @@
 package main
 
-//go:generate swag init -g main.go -o ../../docs
+// @title WhatsApp Relay API
+// @version 1.0
+// @description REST API for sending/receiving WhatsApp messages via whatsmeow.
+// @BasePath /
+//go:generate swag init -g main.go -o ../../docs -d .,../../internal/api
 
 import (
 	"context"

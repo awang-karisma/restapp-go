@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"io"
@@ -64,6 +65,8 @@ type MediaMessageInput struct {
 	FileName string
 	Caption  string
 	Data     []byte
+	// StickerAnimated is set internally when sending stickers to mark animated WebP.
+	StickerAnimated bool
 }
 
 type storedMedia struct {
@@ -247,6 +250,8 @@ func (s *Service) SendMedia(ctx context.Context, input MediaMessageInput) (whats
 	if len(input.Data) == 0 {
 		return whatsmeow.SendResponse{}, errors.New("missing media data")
 	}
+
+	input.MimeType = strings.ToLower(strings.TrimSpace(input.MimeType))
 	if input.MimeType == "" {
 		return whatsmeow.SendResponse{}, errors.New("missing mime type")
 	}
@@ -261,6 +266,18 @@ func (s *Service) SendMedia(ctx context.Context, input MediaMessageInput) (whats
 	jid, err = types.ParseJID(to)
 	if err != nil {
 		jid = types.NewJID(to, types.DefaultUserServer)
+	}
+
+	if kind == "sticker" {
+		isWebP, isAnimated := sniffWebP(input.Data)
+		if input.MimeType != "image/webp" && input.MimeType != "image/x-webp" {
+			return whatsmeow.SendResponse{}, errors.New("sticker mime type must be image/webp; convert GIF/PNG to WebP before sending")
+		}
+		if !isWebP {
+			return whatsmeow.SendResponse{}, errors.New("sticker payload is not valid WebP; conversion is required (future: 3rd-party HTTP API)")
+		}
+		input.StickerAnimated = isAnimated
+		input.MimeType = "image/webp"
 	}
 
 	uploadResp, err := s.client.Upload(ctx, input.Data, mediaType)
@@ -733,7 +750,18 @@ func buildMediaMessage(kind string, input MediaMessageInput, uploadResp whatsmeo
 			},
 		}, nil
 	case "sticker":
-		return nil, errors.New("sticker sending not supported via media endpoint")
+		return &waE2E.Message{
+			StickerMessage: &waE2E.StickerMessage{
+				Mimetype:      proto.String(input.MimeType),
+				URL:           proto.String(uploadResp.URL),
+				DirectPath:    proto.String(uploadResp.DirectPath),
+				MediaKey:      uploadResp.MediaKey,
+				FileEncSHA256: uploadResp.FileEncSHA256,
+				FileSHA256:    uploadResp.FileSHA256,
+				FileLength:    proto.Uint64(uploadResp.FileLength),
+				IsAnimated:    proto.Bool(input.StickerAnimated),
+			},
+		}, nil
 	default:
 		return nil, errors.New("unsupported media type: " + kind)
 	}
@@ -758,4 +786,28 @@ func (s *Service) setQRChannelState(on bool) {
 		s.lastQRCode = s.lastQRCode // keep last code until session exists or replaced
 	}
 	s.qrMu.Unlock()
+}
+
+// sniffWebP verifies WebP header and detects animation chunk (ANIM).
+func sniffWebP(data []byte) (isWebP bool, isAnimated bool) {
+	if len(data) < 12 {
+		return false, false
+	}
+	if string(data[0:4]) != "RIFF" || string(data[8:12]) != "WEBP" {
+		return false, false
+	}
+
+	pos := 12
+	for pos+8 <= len(data) {
+		chunk := string(data[pos : pos+4])
+		size := int(binary.LittleEndian.Uint32(data[pos+4 : pos+8]))
+		if chunk == "ANIM" {
+			return true, true
+		}
+		pos += 8 + size
+		if pos%2 == 1 {
+			pos++
+		}
+	}
+	return true, false
 }
