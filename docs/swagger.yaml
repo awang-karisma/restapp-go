@@ -1,5 +1,15 @@
 basePath: /
 definitions:
+  api.deleteMessageRequest:
+    properties:
+      message_id:
+        type: string
+      sender:
+        description: optional original sender (for admin delete)
+        type: string
+      to:
+        type: string
+    type: object
   api.qrResponse:
     properties:
       qr_base64:
@@ -37,6 +47,17 @@ definitions:
         description: image, video, audio, ptt, file, sticker, sticker_lottie
         type: string
     type: object
+  api.sendReactionRequest:
+    properties:
+      emoji:
+        type: string
+      message_id:
+        type: string
+      sender:
+        type: string
+      to:
+        type: string
+    type: object
   api.sendResponse:
     properties:
       ID:
@@ -64,6 +85,40 @@ info:
   title: WhatsApp Relay API
   version: "1.0"
 paths:
+  /delete-message:
+    post:
+      consumes:
+      - application/json
+      description: Sends a revoke/delete for a message (works for text and media)
+      parameters:
+      - description: Delete payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.deleteMessageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Delete accepted
+          schema:
+            $ref: '#/definitions/api.sendResponse'
+        "400":
+          description: Invalid input
+          schema:
+            type: string
+        "500":
+          description: Delete failed
+          schema:
+            type: string
+        "503":
+          description: WhatsApp not connected
+          schema:
+            type: string
+      summary: Delete a message
+      tags:
+      - messages
   /healthz:
     get:
       description: Returns OK when WhatsApp client is connected
@@ -216,6 +271,40 @@ paths:
       summary: Send media (image/video/audio/ptt/document/sticker/sticker_lottie)
       tags:
       - media
+  /send-reaction:
+    post:
+      consumes:
+      - application/json
+      description: Sends a reaction to an existing WhatsApp message
+      parameters:
+      - description: Reaction payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.sendReactionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Reaction accepted
+          schema:
+            $ref: '#/definitions/api.sendResponse'
+        "400":
+          description: Invalid input
+          schema:
+            type: string
+        "500":
+          description: Send failed
+          schema:
+            type: string
+        "503":
+          description: WhatsApp not connected
+          schema:
+            type: string
+      summary: Send a reaction
+      tags:
+      - messages
   /send-text:
     post:
       consumes:

@@ -15,6 +15,58 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/delete-message": {
+            "post": {
+                "description": "Sends a revoke/delete for a message (works for text and media)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "messages"
+                ],
+                "summary": "Delete a message",
+                "parameters": [
+                    {
+                        "description": "Delete payload",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.deleteMessageRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Delete accepted",
+                        "schema": {
+                            "$ref": "#/definitions/api.sendResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid input",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Delete failed",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "WhatsApp not connected",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/healthz": {
             "get": {
                 "description": "Returns OK when WhatsApp client is connected",
@@ -242,6 +294,58 @@ const docTemplate = `{
                 }
             }
         },
+        "/send-reaction": {
+            "post": {
+                "description": "Sends a reaction to an existing WhatsApp message",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "messages"
+                ],
+                "summary": "Send a reaction",
+                "parameters": [
+                    {
+                        "description": "Reaction payload",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.sendReactionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Reaction accepted",
+                        "schema": {
+                            "$ref": "#/definitions/api.sendResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid input",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Send failed",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "WhatsApp not connected",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/send-text": {
             "post": {
                 "description": "Sends a plain text WhatsApp message",
@@ -339,6 +443,21 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "api.deleteMessageRequest": {
+            "type": "object",
+            "properties": {
+                "message_id": {
+                    "type": "string"
+                },
+                "sender": {
+                    "description": "optional original sender (for admin delete)",
+                    "type": "string"
+                },
+                "to": {
+                    "type": "string"
+                }
+            }
+        },
         "api.qrResponse": {
             "type": "object",
             "properties": {
@@ -389,6 +508,23 @@ const docTemplate = `{
                 },
                 "type": {
                     "description": "image, video, audio, ptt, file, sticker, sticker_lottie",
+                    "type": "string"
+                }
+            }
+        },
+        "api.sendReactionRequest": {
+            "type": "object",
+            "properties": {
+                "emoji": {
+                    "type": "string"
+                },
+                "message_id": {
+                    "type": "string"
+                },
+                "sender": {
+                    "type": "string"
+                },
+                "to": {
                     "type": "string"
                 }
             }

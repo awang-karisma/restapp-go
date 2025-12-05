@@ -60,6 +60,12 @@ type sendReactionRequest struct {
 	Sender    string `json:"sender,omitempty"`
 }
 
+type deleteMessageRequest struct {
+	To        string `json:"to"`
+	MessageID string `json:"message_id"`
+	Sender    string `json:"sender,omitempty"` // optional original sender (for admin delete)
+}
+
 type qrResponse struct {
 	QRBase64 string `json:"qr_base64"`
 }
@@ -77,6 +83,7 @@ func NewServer(cfg config.Config, svc *whatsapp.Service) *Server {
 
 	mux.HandleFunc("/send-text", s.handleSendText)
 	mux.HandleFunc("/send-reaction", s.handleSendReaction)
+	mux.HandleFunc("/delete-message", s.handleDeleteMessage)
 	mux.HandleFunc("/send-media", s.handleSendMedia)
 	mux.HandleFunc("/media", s.handleFetchMedia)
 	mux.HandleFunc("/webhook", s.handleSetWebhook)
@@ -242,6 +249,57 @@ func (s *Server) handleSendReaction(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusServiceUnavailable
 		}
 		http.Error(w, "send reaction failed: "+err.Error(), status)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// handleDeleteMessage godoc
+// @Summary Delete a message
+// @Description Sends a revoke/delete for a message (works for text and media)
+// @Tags messages
+// @Accept json
+// @Produce json
+// @Param request body deleteMessageRequest true "Delete payload"
+// @Success 200 {object} sendResponse "Delete accepted"
+// @Failure 400 {string} string "Invalid input"
+// @Failure 503 {string} string "WhatsApp not connected"
+// @Failure 500 {string} string "Delete failed"
+// @Router /delete-message [post]
+func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req deleteMessageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	req.To = strings.TrimSpace(req.To)
+	req.MessageID = strings.TrimSpace(req.MessageID)
+	req.Sender = strings.TrimSpace(req.Sender)
+
+	if req.To == "" || req.MessageID == "" {
+		http.Error(w, "`to` and `message_id` are required", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	resp, err := s.whatsapp.SendDelete(ctx, req.To, req.MessageID, req.Sender)
+	if err != nil {
+		slog.Error("SendDelete error", "err", err)
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "not connected") {
+			status = http.StatusServiceUnavailable
+		}
+		http.Error(w, "delete failed: "+err.Error(), status)
 		return
 	}
 
