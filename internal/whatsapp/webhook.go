@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"time"
 
-	waCommon "go.mau.fi/whatsmeow/proto/waCommon"
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types/events"
+	"go.mau.fi/whatsmeow/types"
 )
 
 type incomingWebhookPayload struct {
@@ -16,6 +17,7 @@ type incomingWebhookPayload struct {
 	From       string `json:"from"`
 	To         string `json:"to"`
 	Author     string `json:"author"`
+	GroupID    string `json:"group_id,omitempty"`
 	IsGroupMsg bool   `json:"isGroupMsg"`
 	IsQuoted   bool   `json:"isQuoted"`
 	Timestamp  int64  `json:"timestamp"`
@@ -29,6 +31,9 @@ type incomingWebhookPayload struct {
 	DeletedID  string `json:"deleted_id,omitempty"`
 	EditedID   string `json:"edited_id,omitempty"`
 	EditType   string `json:"edit_type,omitempty"`
+	Reaction         string `json:"reaction,omitempty"`
+	ReactionTargetID string `json:"reaction_target_id,omitempty"`
+	ReactionRemove   bool   `json:"reaction_remove,omitempty"`
 	// Ephemeral/disappearing settings
 	EphemeralExpiration       int64  `json:"ephemeral_expiration,omitempty"`
 	EphemeralSettingTimestamp int64  `json:"ephemeral_setting_timestamp,omitempty"`
@@ -37,17 +42,18 @@ type incomingWebhookPayload struct {
 	// History sync notification
 	HistorySyncType     string `json:"history_sync_type,omitempty"`
 	HistorySyncProgress uint32 `json:"history_sync_progress,omitempty"`
-	// Limit sharing (advanced chat privacy)
-	LimitSharingEnabled   *bool  `json:"limit_sharing_enabled,omitempty"`
-	LimitSharingTrigger   string `json:"limit_sharing_trigger,omitempty"`
-	LimitSharingTimestamp int64  `json:"limit_sharing_timestamp,omitempty"`
-	LimitSharingByMe      *bool  `json:"limit_sharing_by_me,omitempty"`
+
+	Participants []string `json:"participants,omitempty"`
 }
 
 func (s *Service) eventHandler(evt interface{}) {
 	switch v := evt.(type) {
 	case *events.Message:
 		go s.forwardToWebhook(v)
+	case *events.GroupInfo:
+		go s.forwardGroupInfoToWebhook(v)
+	case *events.JoinedGroup:
+		go s.forwardJoinedGroupToWebhook(v)
 	}
 }
 
@@ -78,6 +84,139 @@ func (s *Service) forwardToWebhook(msg *events.Message) {
 	}
 }
 
+func (s *Service) forwardGroupInfoToWebhook(info *events.GroupInfo) {
+	url := s.getWebhookURL()
+	if url == "" {
+		return
+	}
+
+	payloads := s.buildGroupInfoPayloads(info)
+	for _, payload := range payloads {
+		body, err := json.Marshal(payload)
+		if err != nil {
+			slog.Error("failed to marshal group webhook payload", "err", err)
+			continue
+		}
+
+		resp, err := s.httpClient.Post(url, "application/json", bytes.NewReader(body))
+		if err != nil {
+			slog.Error("group webhook POST error", "err", err)
+			continue
+		}
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode >= 300 {
+			slog.Warn("group webhook responded with non-2xx", "status", resp.StatusCode)
+		}
+	}
+}
+
+func (s *Service) forwardJoinedGroupToWebhook(info *events.JoinedGroup) {
+	url := s.getWebhookURL()
+	if url == "" {
+		return
+	}
+
+	self := s.selfJID()
+	payload := incomingWebhookPayload{
+		ID:         string(info.CreateKey),
+		From:       jidToString(info.Sender),
+		To:         info.GroupInfo.JID.String(),
+		Author:     jidToString(info.Sender),
+		GroupID:    info.GroupInfo.JID.String(),
+		IsGroupMsg: true,
+		Type:       "group_joined",
+		Timestamp:  time.Now().Unix(),
+	}
+	if self != "" {
+		payload.Participants = []string{self}
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		slog.Error("failed to marshal joined group webhook payload", "err", err)
+		return
+	}
+
+	resp, err := s.httpClient.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		slog.Error("joined group webhook POST error", "err", err)
+		return
+	}
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		slog.Warn("joined group webhook responded with non-2xx", "status", resp.StatusCode)
+	}
+}
+
+func (s *Service) buildGroupInfoPayloads(info *events.GroupInfo) []incomingWebhookPayload {
+	base := incomingWebhookPayload{
+		From:       jidToString(info.Sender),
+		To:         info.JID.String(),
+		Author:     jidToString(info.Sender),
+		GroupID:    info.JID.String(),
+		IsGroupMsg: true,
+		Timestamp:  info.Timestamp.Unix(),
+	}
+
+	var payloads []incomingWebhookPayload
+
+	if len(info.Join) > 0 {
+		p := base
+		p.Type = "group_participants_added"
+		p.Participants = jidsToStrings(info.Join)
+		payloads = append(payloads, p)
+	}
+
+	if len(info.Leave) > 0 {
+		p := base
+		p.Type = "group_participants_removed"
+		p.Participants = jidsToStrings(info.Leave)
+		payloads = append(payloads, p)
+	}
+
+	if len(info.Promote) > 0 {
+		p := base
+		p.Type = "group_promote"
+		p.Participants = jidsToStrings(info.Promote)
+		payloads = append(payloads, p)
+	}
+
+	if len(info.Demote) > 0 {
+		p := base
+		p.Type = "group_demote"
+		p.Participants = jidsToStrings(info.Demote)
+		payloads = append(payloads, p)
+	}
+
+	return payloads
+}
+
+func jidsToStrings(ids []types.JID) []string {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, id.String())
+	}
+	return out
+}
+
+func jidToString(jid *types.JID) string {
+	if jid == nil {
+		return ""
+	}
+	return jid.String()
+}
+
+func (s *Service) selfJID() string {
+	if s.client != nil && s.client.Store != nil && s.client.Store.ID != nil {
+		return s.client.Store.ID.String()
+	}
+	return ""
+}
+
 func (s *Service) buildWebhookPayload(msg *events.Message) incomingWebhookPayload {
 	isQuoted := isQuotedMessage(msg.Message)
 
@@ -86,6 +225,7 @@ func (s *Service) buildWebhookPayload(msg *events.Message) incomingWebhookPayloa
 		From:       msg.Info.Sender.String(),
 		To:         msg.Info.Chat.String(),
 		Author:     msg.Info.Sender.String(),
+		GroupID:    msg.Info.Chat.String(),
 		IsGroupMsg: msg.Info.IsGroup,
 		IsQuoted:   isQuoted,
 		Timestamp:  msg.Info.Timestamp.Unix(),
@@ -104,9 +244,6 @@ func (s *Service) buildWebhookPayload(msg *events.Message) incomingWebhookPayloa
 	switch {
 	case message.GetProtocolMessage() != nil:
 		pm := message.GetProtocolMessage()
-		if ls := pm.GetLimitSharing(); ls != nil {
-			applyLimitSharing(&payload, ls)
-		}
 		switch pm.GetType() {
 		case waE2E.ProtocolMessage_REVOKE:
 			payload.Type = "delete"
@@ -132,8 +269,6 @@ func (s *Service) buildWebhookPayload(msg *events.Message) incomingWebhookPayloa
 			if pm.GetKey() != nil {
 				payload.EditedID = pm.GetKey().GetID()
 			}
-		case waE2E.ProtocolMessage_LIMIT_SHARING:
-			payload.Type = "limit_sharing"
 		default:
 			payload.Type = "protocol"
 		}
@@ -170,6 +305,16 @@ func (s *Service) buildWebhookPayload(msg *events.Message) incomingWebhookPayloa
 		payload.MediaID = msg.Info.ID
 		payload.MimeType = message.GetStickerMessage().GetMimetype()
 		s.cacheMedia(msg.Info.ID, "sticker", message)
+	case message.GetReactionMessage() != nil:
+		payload.Type = "reaction"
+		rm := message.GetReactionMessage()
+		payload.Reaction = rm.GetText()
+		if key := rm.GetKey(); key != nil {
+			payload.ReactionTargetID = key.GetID()
+		}
+		if payload.Reaction == "" {
+			payload.ReactionRemove = true
+		}
 	default:
 		payload.Type = "text"
 		text := ""
@@ -191,35 +336,13 @@ func (s *Service) buildWebhookPayload(msg *events.Message) incomingWebhookPayloa
 	}
 
 	// Advanced privacy: limit sharing changes can be present in context info without protocol wrapper.
-	if payload.Type == "text" || payload.Type == "" {
-		if ctx := message.GetMessageContextInfo(); ctx != nil {
-			if ls := ctx.GetLimitSharing(); ls != nil {
-				payload.Type = "limit_sharing"
-				applyLimitSharing(&payload, ls)
-			} else if ls := ctx.GetLimitSharingV2(); ls != nil {
-				payload.Type = "limit_sharing"
-				applyLimitSharing(&payload, ls)
-			}
-		}
-	}
+	// (Intentionally not emitting limit_sharing events)
 
-	if payload.Type == "delete" || payload.Type == "ephemeral_setting" || payload.Type == "history_sync_notification" || payload.Type == "limit_sharing" {
+	if payload.Type == "delete" || payload.Type == "ephemeral_setting" || payload.Type == "history_sync_notification" {
 		return payload
 	}
 
 	return payload
-}
-
-func applyLimitSharing(payload *incomingWebhookPayload, ls *waCommon.LimitSharing) {
-	if ls == nil {
-		return
-	}
-	enabled := ls.GetSharingLimited()
-	initByMe := ls.GetInitiatedByMe()
-	payload.LimitSharingEnabled = &enabled
-	payload.LimitSharingByMe = &initByMe
-	payload.LimitSharingTrigger = ls.GetTrigger().String()
-	payload.LimitSharingTimestamp = ls.GetLimitSharingSettingTimestamp()
 }
 
 func isQuotedMessage(msg *waE2E.Message) bool {
