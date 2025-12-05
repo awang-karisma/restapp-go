@@ -163,6 +163,40 @@ func (s *Service) SendText(ctx context.Context, to, message string) (whatsmeow.S
 	return s.client.SendMessage(sendCtx, jid, msg, whatsmeow.SendRequestExtra{})
 }
 
+// SendReaction sends a reaction to an existing message.
+func (s *Service) SendReaction(ctx context.Context, chatID, messageID, emoji string, sender string) (whatsmeow.SendResponse, error) {
+	if !s.client.IsConnected() {
+		return whatsmeow.SendResponse{}, errors.New("whatsapp client not connected")
+	}
+
+	chatID = strings.TrimSpace(chatID)
+	messageID = strings.TrimSpace(messageID)
+	emoji = strings.TrimSpace(emoji)
+	sender = strings.TrimSpace(sender)
+	if chatID == "" || messageID == "" {
+		return whatsmeow.SendResponse{}, errors.New("missing destination or message id")
+	}
+
+	chatJID, err := types.ParseJID(chatID)
+	if err != nil {
+		chatJID = types.NewJID(chatID, types.DefaultUserServer)
+	}
+
+	var senderJID types.JID
+	if sender != "" {
+		senderJID, err = types.ParseJID(sender)
+		if err != nil {
+			senderJID = types.NewJID(sender, types.DefaultUserServer)
+		}
+	}
+
+	sendCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	msg := s.client.BuildReaction(chatJID, senderJID, types.MessageID(messageID), emoji)
+	return s.client.SendMessage(sendCtx, chatJID, msg, whatsmeow.SendRequestExtra{})
+}
+
 // SendMedia uploads and sends the provided media to the given destination.
 func (s *Service) SendMedia(ctx context.Context, input MediaMessageInput) (whatsmeow.SendResponse, error) {
 	if !s.client.IsConnected() {

@@ -53,6 +53,13 @@ type sendResponse struct {
 	MessageIDs []string `json:"MessageIDs"`
 }
 
+type sendReactionRequest struct {
+	To        string `json:"to"`
+	MessageID string `json:"message_id"`
+	Emoji     string `json:"emoji"`
+	Sender    string `json:"sender,omitempty"`
+}
+
 type qrResponse struct {
 	QRBase64 string `json:"qr_base64"`
 }
@@ -69,6 +76,7 @@ func NewServer(cfg config.Config, svc *whatsapp.Service) *Server {
 	}
 
 	mux.HandleFunc("/send-text", s.handleSendText)
+	mux.HandleFunc("/send-reaction", s.handleSendReaction)
 	mux.HandleFunc("/send-media", s.handleSendMedia)
 	mux.HandleFunc("/media", s.handleFetchMedia)
 	mux.HandleFunc("/webhook", s.handleSetWebhook)
@@ -183,6 +191,57 @@ func (s *Server) handleSendText(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusServiceUnavailable
 		}
 		http.Error(w, "send failed: "+err.Error(), status)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// handleSendReaction godoc
+// @Summary Send a reaction
+// @Description Sends a reaction to an existing WhatsApp message
+// @Tags messages
+// @Accept json
+// @Produce json
+// @Param request body sendReactionRequest true "Reaction payload"
+// @Success 200 {object} sendResponse "Reaction accepted"
+// @Failure 400 {string} string "Invalid input"
+// @Failure 503 {string} string "WhatsApp not connected"
+// @Failure 500 {string} string "Send failed"
+// @Router /send-reaction [post]
+func (s *Server) handleSendReaction(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req sendReactionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	req.To = strings.TrimSpace(req.To)
+	req.MessageID = strings.TrimSpace(req.MessageID)
+	req.Emoji = strings.TrimSpace(req.Emoji)
+
+	if req.To == "" || req.MessageID == "" || req.Emoji == "" {
+		http.Error(w, "`to`, `message_id`, and `emoji` are required", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	resp, err := s.whatsapp.SendReaction(ctx, req.To, req.MessageID, req.Emoji, req.Sender)
+	if err != nil {
+		slog.Error("SendReaction error", "err", err)
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "not connected") {
+			status = http.StatusServiceUnavailable
+		}
+		http.Error(w, "send reaction failed: "+err.Error(), status)
 		return
 	}
 
